@@ -1,0 +1,1480 @@
+using System.Collections.Generic;
+using TMPro;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.UI;
+
+public enum SpecialRewardTier
+{
+    Elite,
+    MiniBoss,
+    Boss
+}
+
+public class SpecialUpgradeManager : MonoBehaviour
+{
+    public static SpecialUpgradeManager Instance { get; private set; }
+
+    public static bool HasInstance
+    {
+        get { return Instance != null; }
+    }
+
+    private enum SpecialUpgradeType
+    {
+        DamagePercent,
+        FireRatePercent,
+        MoveSpeedPercent,
+        CriticalChance,
+        ProjectileSize,
+        ProjectileCount,
+        ProjectilePierce,
+        PickupMagnetPercent,
+        MaxHealth,
+        Heal,
+        HealthPickupHealing,
+        HealthPickupDropChance,
+        ExplosiveShots,
+        LightningStrike,
+        OrbitingBlade,
+        FireTrail,
+        BlackHole,
+        DroneTurret,
+        IceNova,
+        PoisonCloud,
+        RicochetRounds,
+        LaserBeam,
+        Shockwave,
+        GuardianShield,
+        MeteorStrike,
+        ShrapnelMines,
+        BloodPact,
+        TimeFracture,
+        CryoBlast
+    }
+
+    private class SpecialUpgradeOption
+    {
+        public string Title;
+        public string Description;
+        public SpecialUpgradeType Type;
+        public float Amount;
+
+        public SpecialUpgradeOption(string title, string description, SpecialUpgradeType type, float amount)
+        {
+            Title = title;
+            Description = description;
+            Type = type;
+            Amount = amount;
+        }
+    }
+
+    [Header("Player References")]
+    [SerializeField] private PlayerStats playerStats;
+    [SerializeField] private Health playerHealth;
+    [SerializeField] private PlayerSpecialAbilities playerSpecialAbilities;
+
+    [Header("Reward UI")]
+    [SerializeField] private GameObject rewardPanel;
+
+    [Header("Panel Title - Legacy Text Optional")]
+    [SerializeField] private Text panelTitleText;
+
+    [Header("Panel Title - TMP Optional")]
+    [SerializeField] private TMP_Text panelTitleTMPText;
+
+    [Header("Reward Buttons")]
+    [SerializeField] private Button[] rewardButtons;
+
+    [Header("Reward Button Texts - Legacy Text Optional")]
+    [SerializeField] private Text[] rewardButtonTexts;
+
+    [Header("Reward Button Texts - TMP Optional")]
+    [SerializeField] private TMP_Text[] rewardButtonTMPTexts;
+
+    [Header("Settings")]
+    [SerializeField] private int choicesToShow = 3;
+    [SerializeField] private bool pauseGameWhileChoosing = true;
+
+    private readonly List<SpecialUpgradeOption> eliteRewardPool = new List<SpecialUpgradeOption>();
+    private readonly List<SpecialUpgradeOption> miniBossRewardPool = new List<SpecialUpgradeOption>();
+    private readonly List<SpecialUpgradeOption> bossRewardPool = new List<SpecialUpgradeOption>();
+    private readonly List<SpecialUpgradeOption> currentChoices = new List<SpecialUpgradeOption>();
+
+    private UnityAction[] activeButtonActions;
+
+    private float previousTimeScale = 1f;
+    private bool rewardPanelOpen;
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
+
+        AutoFindReferences();
+        BuildRewardPools();
+
+        if (rewardPanel != null)
+        {
+            rewardPanel.SetActive(false);
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    public bool ShowRewardChoices(SpecialRewardTier rewardTier)
+    {
+        if (rewardPanelOpen)
+        {
+            return false;
+        }
+
+        AutoFindReferences();
+
+        if (rewardPanel == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager is missing the Reward Panel.");
+            return false;
+        }
+
+        if (rewardButtons == null || rewardButtons.Length == 0)
+        {
+            Debug.LogWarning("SpecialUpgradeManager is missing reward buttons.");
+            return false;
+        }
+
+        List<SpecialUpgradeOption> sourcePool = GetRewardPool(rewardTier);
+
+        if (sourcePool == null || sourcePool.Count == 0)
+        {
+            Debug.LogWarning($"No special rewards found for tier: {rewardTier}");
+            return false;
+        }
+
+        PickRandomChoices(sourcePool);
+        OpenRewardPanel(rewardTier);
+        RefreshRewardButtons();
+
+        return true;
+    }
+
+    private void BuildRewardPools()
+    {
+        eliteRewardPool.Clear();
+        miniBossRewardPool.Clear();
+        bossRewardPool.Clear();
+
+        BuildEliteRewardPool();
+        BuildMiniBossRewardPool();
+        BuildBossRewardPool();
+    }
+
+    private void BuildEliteRewardPool()
+    {
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Refined Powder",
+            "+10% projectile damage",
+            SpecialUpgradeType.DamagePercent,
+            0.10f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Quick Fuse",
+            "+10% fire rate",
+            SpecialUpgradeType.FireRatePercent,
+            0.10f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Lightweight Boots",
+            "+8% move speed",
+            SpecialUpgradeType.MoveSpeedPercent,
+            0.08f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Focused Lens",
+            "+3% critical chance",
+            SpecialUpgradeType.CriticalChance,
+            0.03f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Minor Magnet Core",
+            "+15% pickup magnet range",
+            SpecialUpgradeType.PickupMagnetPercent,
+            0.15f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Larger Casings",
+            "+10% projectile size",
+            SpecialUpgradeType.ProjectileSize,
+            0.10f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "First Aid Kit",
+            "Heal 25 health",
+            SpecialUpgradeType.Heal,
+            25f
+        ));
+
+        eliteRewardPool.Add(new SpecialUpgradeOption(
+            "Lucky Pouch",
+            "+3% health pickup drop chance",
+            SpecialUpgradeType.HealthPickupDropChance,
+            0.03f
+        ));
+    }
+
+    private void BuildMiniBossRewardPool()
+    {
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Explosive Shots",
+            "Projectiles explode on hit, damaging nearby enemies.",
+            SpecialUpgradeType.ExplosiveShots,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Lightning Strike",
+            "Every few seconds, lightning strikes a random nearby enemy.",
+            SpecialUpgradeType.LightningStrike,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Orbiting Blade",
+            "A blade circles you and damages enemies it touches.",
+            SpecialUpgradeType.OrbitingBlade,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Fire Trail",
+            "Leave burning zones behind while moving.",
+            SpecialUpgradeType.FireTrail,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Black Hole",
+            "Periodically pulls enemies into a damaging gravity field.",
+            SpecialUpgradeType.BlackHole,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Drone Turret",
+            "A small drone orbits you and shoots nearby enemies.",
+            SpecialUpgradeType.DroneTurret,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Ice Nova",
+            "Periodically releases a freezing blast around you.",
+            SpecialUpgradeType.IceNova,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Poison Cloud",
+            "Periodically drops toxic clouds on enemy clusters.",
+            SpecialUpgradeType.PoisonCloud,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Ricochet Rounds",
+            "Projectiles bounce to nearby enemies after hitting.",
+            SpecialUpgradeType.RicochetRounds,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Laser Beam",
+            "A rotating beam sweeps around you and burns through enemies.",
+            SpecialUpgradeType.LaserBeam,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Shockwave",
+            "Periodically releases a blast that damages and pushes enemies away.",
+            SpecialUpgradeType.Shockwave,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "EVOLUTION: Cryo Blast",
+            "Consumes Ice Nova + Shockwave to create a stronger freezing blast.",
+            SpecialUpgradeType.CryoBlast,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Guardian Shield",
+            "Rotating shields block enemy bullets and damage enemies they touch.",
+            SpecialUpgradeType.GuardianShield,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Meteor Strike",
+            "Calls down warning circles that explode on enemy clusters.",
+            SpecialUpgradeType.MeteorStrike,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Shrapnel Mines",
+            "Drop armed mines while moving. Enemies trigger the explosion.",
+            SpecialUpgradeType.ShrapnelMines,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Blood Pact",
+            "Enemy kills have a chance to restore a small amount of health.",
+            SpecialUpgradeType.BloodPact,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Time Fracture",
+            "Periodically creates a field that slows and damages nearby enemies.",
+            SpecialUpgradeType.TimeFracture,
+            1f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Power Core",
+            "+25% projectile damage",
+            SpecialUpgradeType.DamagePercent,
+            0.25f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Accelerator Core",
+            "+20% fire rate",
+            SpecialUpgradeType.FireRatePercent,
+            0.20f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Bullet Storm",
+            "+2 projectiles",
+            SpecialUpgradeType.ProjectileCount,
+            2f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Overcharged Rounds",
+            "+2 projectile pierce",
+            SpecialUpgradeType.ProjectilePierce,
+            2f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Heavy Shells",
+            "+35% projectile size",
+            SpecialUpgradeType.ProjectileSize,
+            0.35f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Hunter's Eye",
+            "+10% critical chance",
+            SpecialUpgradeType.CriticalChance,
+            0.10f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Vital Engine",
+            "+50 max health",
+            SpecialUpgradeType.MaxHealth,
+            50f
+        ));
+
+        miniBossRewardPool.Add(new SpecialUpgradeOption(
+            "Medical Cache",
+            "+40% health pickup healing",
+            SpecialUpgradeType.HealthPickupHealing,
+            0.40f
+        ));
+    }
+
+    private void BuildBossRewardPool()
+    {
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Devastation",
+            "+40% projectile damage",
+            SpecialUpgradeType.DamagePercent,
+            0.40f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Barrage",
+            "+3 projectiles",
+            SpecialUpgradeType.ProjectileCount,
+            3f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Drill Rounds",
+            "+3 projectile pierce",
+            SpecialUpgradeType.ProjectilePierce,
+            3f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Giant Rounds",
+            "+50% projectile size",
+            SpecialUpgradeType.ProjectileSize,
+            0.50f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Explosive Payload",
+            "Explosive Shots become stronger.",
+            SpecialUpgradeType.ExplosiveShots,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Storm Engine",
+            "Lightning Strike becomes stronger.",
+            SpecialUpgradeType.LightningStrike,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Blade Storm",
+            "Orbiting Blade becomes stronger.",
+            SpecialUpgradeType.OrbitingBlade,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Wildfire",
+            "Fire Trail becomes stronger.",
+            SpecialUpgradeType.FireTrail,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Singularity",
+            "Black Hole becomes stronger.",
+            SpecialUpgradeType.BlackHole,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Drone Swarm",
+            "Drone Turret becomes stronger.",
+            SpecialUpgradeType.DroneTurret,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Cryo Core",
+            "Ice Nova becomes stronger.",
+            SpecialUpgradeType.IceNova,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Toxic Engine",
+            "Poison Cloud becomes stronger.",
+            SpecialUpgradeType.PoisonCloud,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Pinball Rounds",
+            "Ricochet Rounds become stronger.",
+            SpecialUpgradeType.RicochetRounds,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Solar Lance",
+            "Laser Beam becomes stronger.",
+            SpecialUpgradeType.LaserBeam,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Repulsor Core",
+            "Shockwave becomes stronger.",
+            SpecialUpgradeType.Shockwave,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "EVOLUTION: Cryo Blast",
+            "Consumes Ice Nova + Shockwave to create a stronger freezing blast.",
+            SpecialUpgradeType.CryoBlast,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Aegis Array",
+            "Guardian Shield becomes stronger.",
+            SpecialUpgradeType.GuardianShield,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Meteor Barrage",
+            "Meteor Strike becomes stronger.",
+            SpecialUpgradeType.MeteorStrike,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Minefield",
+            "Shrapnel Mines become stronger.",
+            SpecialUpgradeType.ShrapnelMines,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Crimson Engine",
+            "Blood Pact becomes stronger.",
+            SpecialUpgradeType.BloodPact,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Time Collapse",
+            "Time Fracture becomes stronger.",
+            SpecialUpgradeType.TimeFracture,
+            1f
+        ));
+
+        bossRewardPool.Add(new SpecialUpgradeOption(
+            "Boss Core: Vitality",
+            "+100 max health",
+            SpecialUpgradeType.MaxHealth,
+            100f
+        ));
+    }
+
+    private List<SpecialUpgradeOption> GetRewardPool(SpecialRewardTier rewardTier)
+    {
+        switch (rewardTier)
+        {
+            case SpecialRewardTier.Elite:
+                return eliteRewardPool;
+
+            case SpecialRewardTier.MiniBoss:
+                return miniBossRewardPool;
+
+            case SpecialRewardTier.Boss:
+                return bossRewardPool;
+        }
+
+        return eliteRewardPool;
+    }
+
+    private void PickRandomChoices(List<SpecialUpgradeOption> sourcePool)
+    {
+        currentChoices.Clear();
+
+        List<SpecialUpgradeOption> temporaryPool = BuildEligibleRewardPool(sourcePool);
+
+        if (temporaryPool.Count == 0)
+        {
+            temporaryPool = BuildStatOnlyRewardPool(sourcePool);
+        }
+
+        if (temporaryPool.Count == 0)
+        {
+            temporaryPool = new List<SpecialUpgradeOption>(sourcePool);
+        }
+
+        int maxChoices = Mathf.Min(choicesToShow, rewardButtons.Length);
+        int choicesToPick = Mathf.Min(maxChoices, temporaryPool.Count);
+
+        for (int i = 0; i < choicesToPick; i++)
+        {
+            int randomIndex = Random.Range(0, temporaryPool.Count);
+
+            currentChoices.Add(temporaryPool[randomIndex]);
+            temporaryPool.RemoveAt(randomIndex);
+        }
+    }
+
+    private List<SpecialUpgradeOption> BuildEligibleRewardPool(List<SpecialUpgradeOption> sourcePool)
+    {
+        List<SpecialUpgradeOption> eligiblePool = new List<SpecialUpgradeOption>();
+
+        if (sourcePool == null)
+        {
+            return eligiblePool;
+        }
+
+        for (int i = 0; i < sourcePool.Count; i++)
+        {
+            SpecialUpgradeOption option = sourcePool[i];
+
+            if (IsRewardOptionEligible(option))
+            {
+                eligiblePool.Add(option);
+            }
+        }
+
+        return eligiblePool;
+    }
+
+    private List<SpecialUpgradeOption> BuildStatOnlyRewardPool(List<SpecialUpgradeOption> sourcePool)
+    {
+        List<SpecialUpgradeOption> statPool = new List<SpecialUpgradeOption>();
+
+        if (sourcePool == null)
+        {
+            return statPool;
+        }
+
+        for (int i = 0; i < sourcePool.Count; i++)
+        {
+            SpecialUpgradeOption option = sourcePool[i];
+
+            if (option != null && IsStatRewardType(option.Type))
+            {
+                statPool.Add(option);
+            }
+        }
+
+        return statPool;
+    }
+
+    private bool IsRewardOptionEligible(SpecialUpgradeOption option)
+    {
+        if (option == null)
+        {
+            return false;
+        }
+
+        if (playerSpecialAbilities == null)
+        {
+            return true;
+        }
+
+        if (option.Type == SpecialUpgradeType.CryoBlast)
+        {
+            return playerSpecialAbilities.CanEvolveCryoBlast();
+        }
+
+        PlayerSpecialAbilities.SpecialAbilityId normalAbilityId = GetNormalAbilityId(option.Type);
+
+        if (normalAbilityId == PlayerSpecialAbilities.SpecialAbilityId.None)
+        {
+            return true;
+        }
+
+        if (playerSpecialAbilities.IsNormalAbilityUnlocked(normalAbilityId))
+        {
+            return true;
+        }
+
+        return playerSpecialAbilities.CanUnlockNormalAbility(normalAbilityId);
+    }
+
+    private PlayerSpecialAbilities.SpecialAbilityId GetNormalAbilityId(SpecialUpgradeType upgradeType)
+    {
+        switch (upgradeType)
+        {
+            case SpecialUpgradeType.ExplosiveShots:
+                return PlayerSpecialAbilities.SpecialAbilityId.ExplosiveShots;
+            case SpecialUpgradeType.LightningStrike:
+                return PlayerSpecialAbilities.SpecialAbilityId.LightningStrike;
+            case SpecialUpgradeType.OrbitingBlade:
+                return PlayerSpecialAbilities.SpecialAbilityId.OrbitingBlade;
+            case SpecialUpgradeType.FireTrail:
+                return PlayerSpecialAbilities.SpecialAbilityId.FireTrail;
+            case SpecialUpgradeType.BlackHole:
+                return PlayerSpecialAbilities.SpecialAbilityId.BlackHole;
+            case SpecialUpgradeType.DroneTurret:
+                return PlayerSpecialAbilities.SpecialAbilityId.DroneTurret;
+            case SpecialUpgradeType.IceNova:
+                return PlayerSpecialAbilities.SpecialAbilityId.IceNova;
+            case SpecialUpgradeType.PoisonCloud:
+                return PlayerSpecialAbilities.SpecialAbilityId.PoisonCloud;
+            case SpecialUpgradeType.RicochetRounds:
+                return PlayerSpecialAbilities.SpecialAbilityId.RicochetRounds;
+            case SpecialUpgradeType.LaserBeam:
+                return PlayerSpecialAbilities.SpecialAbilityId.LaserBeam;
+            case SpecialUpgradeType.Shockwave:
+                return PlayerSpecialAbilities.SpecialAbilityId.Shockwave;
+            case SpecialUpgradeType.GuardianShield:
+                return PlayerSpecialAbilities.SpecialAbilityId.GuardianShield;
+            case SpecialUpgradeType.MeteorStrike:
+                return PlayerSpecialAbilities.SpecialAbilityId.MeteorStrike;
+            case SpecialUpgradeType.ShrapnelMines:
+                return PlayerSpecialAbilities.SpecialAbilityId.ShrapnelMines;
+            case SpecialUpgradeType.BloodPact:
+                return PlayerSpecialAbilities.SpecialAbilityId.BloodPact;
+            case SpecialUpgradeType.TimeFracture:
+                return PlayerSpecialAbilities.SpecialAbilityId.TimeFracture;
+        }
+
+        return PlayerSpecialAbilities.SpecialAbilityId.None;
+    }
+
+    private bool IsStatRewardType(SpecialUpgradeType upgradeType)
+    {
+        switch (upgradeType)
+        {
+            case SpecialUpgradeType.DamagePercent:
+            case SpecialUpgradeType.FireRatePercent:
+            case SpecialUpgradeType.MoveSpeedPercent:
+            case SpecialUpgradeType.CriticalChance:
+            case SpecialUpgradeType.ProjectileSize:
+            case SpecialUpgradeType.ProjectileCount:
+            case SpecialUpgradeType.ProjectilePierce:
+            case SpecialUpgradeType.PickupMagnetPercent:
+            case SpecialUpgradeType.MaxHealth:
+            case SpecialUpgradeType.Heal:
+            case SpecialUpgradeType.HealthPickupHealing:
+            case SpecialUpgradeType.HealthPickupDropChance:
+                return true;
+        }
+
+        return false;
+    }
+
+    private void OpenRewardPanel(SpecialRewardTier rewardTier)
+    {
+        rewardPanelOpen = true;
+
+        SetPanelTitle(GetPanelTitle(rewardTier));
+        rewardPanel.SetActive(true);
+
+        if (pauseGameWhileChoosing)
+        {
+            previousTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
+        }
+    }
+
+    private void CloseRewardPanel()
+    {
+        ClearButtonActions();
+
+        if (rewardPanel != null)
+        {
+            rewardPanel.SetActive(false);
+        }
+
+        if (pauseGameWhileChoosing)
+        {
+            Time.timeScale = previousTimeScale;
+        }
+
+        rewardPanelOpen = false;
+    }
+
+    private void RefreshRewardButtons()
+    {
+        if (rewardButtons == null)
+        {
+            return;
+        }
+
+        if (activeButtonActions == null || activeButtonActions.Length != rewardButtons.Length)
+        {
+            activeButtonActions = new UnityAction[rewardButtons.Length];
+        }
+
+        for (int i = 0; i < rewardButtons.Length; i++)
+        {
+            Button button = rewardButtons[i];
+
+            if (button == null)
+            {
+                continue;
+            }
+
+            RemoveButtonAction(i);
+
+            bool hasChoice = i < currentChoices.Count;
+            button.gameObject.SetActive(hasChoice);
+
+            if (!hasChoice)
+            {
+                continue;
+            }
+
+            SpecialUpgradeOption option = currentChoices[i];
+
+            SetButtonText(i, $"{option.Title}\n{option.Description}");
+
+            int capturedIndex = i;
+            activeButtonActions[i] = () => ChooseReward(capturedIndex);
+            button.onClick.AddListener(activeButtonActions[i]);
+        }
+    }
+
+    private void ChooseReward(int choiceIndex)
+    {
+        if (choiceIndex < 0 || choiceIndex >= currentChoices.Count)
+        {
+            return;
+        }
+
+        SpecialUpgradeOption chosenReward = currentChoices[choiceIndex];
+
+        ApplySpecialUpgrade(chosenReward);
+
+        Debug.Log($"Chosen special reward: {chosenReward.Title}");
+
+        CloseRewardPanel();
+    }
+
+    private void ApplySpecialUpgrade(SpecialUpgradeOption upgrade)
+    {
+        if (upgrade == null)
+        {
+            return;
+        }
+
+        AutoFindReferences();
+
+        switch (upgrade.Type)
+        {
+            case SpecialUpgradeType.DamagePercent:
+                if (playerStats != null)
+                {
+                    float damageIncrease = playerStats.ProjectileDamage * upgrade.Amount;
+                    playerStats.IncreaseProjectileDamage(damageIncrease);
+                }
+                break;
+
+            case SpecialUpgradeType.FireRatePercent:
+                if (playerStats != null)
+                {
+                    float fireRateIncrease = playerStats.FireRate * upgrade.Amount;
+                    playerStats.IncreaseFireRate(fireRateIncrease);
+                }
+                break;
+
+            case SpecialUpgradeType.MoveSpeedPercent:
+                if (playerStats != null)
+                {
+                    float moveSpeedIncrease = playerStats.MoveSpeed * upgrade.Amount;
+                    playerStats.IncreaseMoveSpeed(moveSpeedIncrease);
+                }
+                break;
+
+            case SpecialUpgradeType.CriticalChance:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseCriticalChance(upgrade.Amount);
+                }
+                break;
+
+            case SpecialUpgradeType.ProjectileSize:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseProjectileSizeMultiplier(upgrade.Amount);
+                }
+                break;
+
+            case SpecialUpgradeType.ProjectileCount:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseProjectileCount(Mathf.RoundToInt(upgrade.Amount));
+                }
+                break;
+
+            case SpecialUpgradeType.ProjectilePierce:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseProjectilePierce(Mathf.RoundToInt(upgrade.Amount));
+                }
+                break;
+
+            case SpecialUpgradeType.PickupMagnetPercent:
+                if (playerStats != null)
+                {
+                    float magnetIncrease = playerStats.XPMagnetRange * upgrade.Amount;
+                    playerStats.IncreaseXPMagnetRange(magnetIncrease);
+                }
+                break;
+
+            case SpecialUpgradeType.MaxHealth:
+                if (playerHealth != null)
+                {
+                    playerHealth.IncreaseMaxHealth(upgrade.Amount, true);
+                }
+                break;
+
+            case SpecialUpgradeType.Heal:
+                if (playerHealth != null)
+                {
+                    playerHealth.Heal(upgrade.Amount);
+                }
+                break;
+
+            case SpecialUpgradeType.HealthPickupHealing:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseHealthPickupHealMultiplier(upgrade.Amount);
+                }
+                break;
+
+            case SpecialUpgradeType.HealthPickupDropChance:
+                if (playerStats != null)
+                {
+                    playerStats.IncreaseHealthPickupDropChanceBonus(upgrade.Amount);
+                }
+                break;
+
+            case SpecialUpgradeType.ExplosiveShots:
+                ApplyExplosiveShotsUpgrade();
+                break;
+
+            case SpecialUpgradeType.LightningStrike:
+                ApplyLightningStrikeUpgrade();
+                break;
+
+            case SpecialUpgradeType.OrbitingBlade:
+                ApplyOrbitingBladeUpgrade();
+                break;
+
+            case SpecialUpgradeType.FireTrail:
+                ApplyFireTrailUpgrade();
+                break;
+
+            case SpecialUpgradeType.BlackHole:
+                ApplyBlackHoleUpgrade();
+                break;
+
+            case SpecialUpgradeType.DroneTurret:
+                ApplyDroneTurretUpgrade();
+                break;
+
+            case SpecialUpgradeType.IceNova:
+                ApplyIceNovaUpgrade();
+                break;
+
+            case SpecialUpgradeType.PoisonCloud:
+                ApplyPoisonCloudUpgrade();
+                break;
+
+            case SpecialUpgradeType.RicochetRounds:
+                ApplyRicochetRoundsUpgrade();
+                break;
+
+            case SpecialUpgradeType.LaserBeam:
+                ApplyLaserBeamUpgrade();
+                break;
+
+            case SpecialUpgradeType.Shockwave:
+                ApplyShockwaveUpgrade();
+                break;
+
+            case SpecialUpgradeType.GuardianShield:
+                ApplyGuardianShieldUpgrade();
+                break;
+
+            case SpecialUpgradeType.MeteorStrike:
+                ApplyMeteorStrikeUpgrade();
+                break;
+
+            case SpecialUpgradeType.ShrapnelMines:
+                ApplyShrapnelMinesUpgrade();
+                break;
+
+            case SpecialUpgradeType.BloodPact:
+                ApplyBloodPactUpgrade();
+                break;
+
+            case SpecialUpgradeType.TimeFracture:
+                ApplyTimeFractureUpgrade();
+                break;
+
+            case SpecialUpgradeType.CryoBlast:
+                ApplyCryoBlastUpgrade();
+                break;
+        }
+    }
+
+    private void ApplyExplosiveShotsUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.ExplosiveShotsUnlocked)
+        {
+            playerSpecialAbilities.UnlockExplosiveShots();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseExplosiveShotRadius(0.35f);
+        playerSpecialAbilities.IncreaseExplosiveShotDamageMultiplier(0.10f);
+    }
+
+    private void ApplyLightningStrikeUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.LightningStrikeUnlocked)
+        {
+            playerSpecialAbilities.UnlockLightningStrike();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseLightningStrikeDamage(15f);
+        playerSpecialAbilities.IncreaseLightningStrikeRange(1f);
+        playerSpecialAbilities.ReduceLightningStrikeCooldown(0.35f);
+    }
+
+    private void ApplyOrbitingBladeUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.OrbitingBladeUnlocked)
+        {
+            playerSpecialAbilities.UnlockOrbitingBlade();
+            return;
+        }
+
+        if (playerSpecialAbilities.OrbitingBladeCount < playerSpecialAbilities.MaxOrbitingBlades)
+        {
+            playerSpecialAbilities.AddOrbitingBlade(1);
+        }
+
+        playerSpecialAbilities.IncreaseOrbitingBladeDamage(6f);
+        playerSpecialAbilities.IncreaseOrbitingBladeSpeed(18f);
+        playerSpecialAbilities.IncreaseOrbitingBladeOrbitRadius(0.10f);
+        playerSpecialAbilities.ReduceOrbitingBladeHitCooldown(0.025f);
+    }
+
+    private void ApplyFireTrailUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.FireTrailUnlocked)
+        {
+            playerSpecialAbilities.UnlockFireTrail();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseFireTrailDamage(3f);
+        playerSpecialAbilities.IncreaseFireTrailRadius(0.12f);
+        playerSpecialAbilities.ReduceFireTrailSpawnInterval(0.025f);
+        playerSpecialAbilities.IncreaseFireTrailLifetime(0.15f);
+    }
+
+    private void ApplyBlackHoleUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.BlackHoleUnlocked)
+        {
+            playerSpecialAbilities.UnlockBlackHole();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseBlackHoleDamage(2f);
+        playerSpecialAbilities.IncreaseBlackHoleRadius(0.18f);
+        playerSpecialAbilities.IncreaseBlackHoleDuration(0.2f);
+        playerSpecialAbilities.IncreaseBlackHolePullStrength(4f);
+        playerSpecialAbilities.ReduceBlackHoleCooldown(0.25f);
+    }
+
+    private void ApplyDroneTurretUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.DroneTurretUnlocked)
+        {
+            playerSpecialAbilities.UnlockDroneTurret();
+            return;
+        }
+
+        if (playerSpecialAbilities.DroneTurretCount < playerSpecialAbilities.MaxDroneTurrets)
+        {
+            playerSpecialAbilities.AddDroneTurret(1);
+        }
+
+        playerSpecialAbilities.IncreaseDroneTurretDamage(4f);
+        playerSpecialAbilities.ReduceDroneTurretCooldown(0.035f);
+        playerSpecialAbilities.IncreaseDroneTurretRange(0.4f);
+    }
+
+    private void ApplyIceNovaUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.IceNovaUnlocked)
+        {
+            playerSpecialAbilities.UnlockIceNova();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseIceNovaDamage(7f);
+        playerSpecialAbilities.IncreaseIceNovaRadius(0.25f);
+        playerSpecialAbilities.ReduceIceNovaCooldown(0.25f);
+        playerSpecialAbilities.IncreaseIceNovaKnockback(0.25f);
+    }
+
+    private void ApplyPoisonCloudUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.PoisonCloudUnlocked)
+        {
+            playerSpecialAbilities.UnlockPoisonCloud();
+            return;
+        }
+
+        playerSpecialAbilities.IncreasePoisonCloudDamage(3f);
+        playerSpecialAbilities.IncreasePoisonCloudRadius(0.18f);
+        playerSpecialAbilities.IncreasePoisonCloudDuration(0.25f);
+        playerSpecialAbilities.ReducePoisonCloudCooldown(0.2f);
+    }
+
+    private void ApplyRicochetRoundsUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.RicochetRoundsUnlocked)
+        {
+            playerSpecialAbilities.UnlockRicochetRounds();
+            return;
+        }
+
+        if (playerSpecialAbilities.RicochetBounceCount < playerSpecialAbilities.MaxRicochetBounceCount)
+        {
+            playerSpecialAbilities.AddRicochetBounce(1);
+        }
+
+        playerSpecialAbilities.IncreaseRicochetRange(0.5f);
+        playerSpecialAbilities.IncreaseRicochetDamageMultiplier(0.03f);
+    }
+
+    private void ApplyLaserBeamUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.LaserBeamUnlocked)
+        {
+            playerSpecialAbilities.UnlockLaserBeam();
+            return;
+        }
+
+        if (playerSpecialAbilities.LaserBeamCount < playerSpecialAbilities.MaxLaserBeamCount)
+        {
+            playerSpecialAbilities.AddLaserBeam(1);
+        }
+
+        playerSpecialAbilities.IncreaseLaserBeamDamage(3f);
+        playerSpecialAbilities.IncreaseLaserBeamLength(0.25f);
+        playerSpecialAbilities.IncreaseLaserBeamRotationSpeed(8f);
+        playerSpecialAbilities.IncreaseLaserBeamHitWidth(0.02f);
+        playerSpecialAbilities.ReduceLaserBeamHitCooldown(0.012f);
+    }
+
+    private void ApplyShockwaveUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.ShockwaveUnlocked)
+        {
+            playerSpecialAbilities.UnlockShockwave();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseShockwaveDamage(7f);
+        playerSpecialAbilities.IncreaseShockwaveRadius(0.25f);
+        playerSpecialAbilities.IncreaseShockwaveKnockback(0.35f);
+        playerSpecialAbilities.ReduceShockwaveCooldown(0.25f);
+    }
+
+    private void ApplyGuardianShieldUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.GuardianShieldUnlocked)
+        {
+            playerSpecialAbilities.UnlockGuardianShield();
+            return;
+        }
+
+        if (playerSpecialAbilities.GuardianShieldCount < playerSpecialAbilities.MaxGuardianShields)
+        {
+            playerSpecialAbilities.AddGuardianShield(1);
+        }
+
+        playerSpecialAbilities.IncreaseGuardianShieldDamage(4f);
+        playerSpecialAbilities.IncreaseGuardianShieldOrbitSpeed(12f);
+        playerSpecialAbilities.IncreaseGuardianShieldHitRadius(0.03f);
+    }
+
+    private void ApplyMeteorStrikeUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.MeteorStrikeUnlocked)
+        {
+            playerSpecialAbilities.UnlockMeteorStrike();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseMeteorStrikeDamage(12f);
+        playerSpecialAbilities.IncreaseMeteorStrikeRadius(0.18f);
+        playerSpecialAbilities.ReduceMeteorStrikeCooldown(0.25f);
+    }
+
+    private void ApplyShrapnelMinesUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.ShrapnelMinesUnlocked)
+        {
+            playerSpecialAbilities.UnlockShrapnelMines();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseShrapnelMineDamage(7f);
+        playerSpecialAbilities.IncreaseShrapnelMineBlastRadius(0.16f);
+        playerSpecialAbilities.ReduceShrapnelMineCooldown(0.12f);
+    }
+
+    private void ApplyBloodPactUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.BloodPactUnlocked)
+        {
+            playerSpecialAbilities.UnlockBloodPact();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseBloodPactHealChance(0.08f);
+        playerSpecialAbilities.IncreaseBloodPactHealPerKill(0.75f);
+    }
+
+    private void ApplyTimeFractureUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.TimeFractureUnlocked)
+        {
+            playerSpecialAbilities.UnlockTimeFracture();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseTimeFractureDamage(2f);
+        playerSpecialAbilities.IncreaseTimeFractureRadius(0.2f);
+        playerSpecialAbilities.IncreaseTimeFractureDuration(0.15f);
+        playerSpecialAbilities.ReduceTimeFractureCooldown(0.25f);
+    }
+
+    private void ApplyCryoBlastUpgrade()
+    {
+        if (playerSpecialAbilities == null)
+        {
+            Debug.LogWarning("SpecialUpgradeManager could not find PlayerSpecialAbilities.");
+            return;
+        }
+
+        if (!playerSpecialAbilities.CryoBlastUnlocked)
+        {
+            playerSpecialAbilities.UnlockCryoBlast();
+            return;
+        }
+
+        playerSpecialAbilities.IncreaseCryoBlastDamage(12f);
+        playerSpecialAbilities.IncreaseCryoBlastRadius(0.25f);
+        playerSpecialAbilities.IncreaseCryoBlastKnockback(0.75f);
+        playerSpecialAbilities.ReduceCryoBlastCooldown(0.2f);
+    }
+
+    private void SetPanelTitle(string title)
+    {
+        if (panelTitleText != null)
+        {
+            panelTitleText.text = title;
+        }
+
+        if (panelTitleTMPText != null)
+        {
+            panelTitleTMPText.text = title;
+        }
+    }
+
+    private void SetButtonText(int index, string text)
+    {
+        if (rewardButtonTexts != null && index < rewardButtonTexts.Length && rewardButtonTexts[index] != null)
+        {
+            rewardButtonTexts[index].text = text;
+        }
+
+        if (rewardButtonTMPTexts != null && index < rewardButtonTMPTexts.Length && rewardButtonTMPTexts[index] != null)
+        {
+            rewardButtonTMPTexts[index].text = text;
+        }
+    }
+
+    private string GetPanelTitle(SpecialRewardTier rewardTier)
+    {
+        switch (rewardTier)
+        {
+            case SpecialRewardTier.Elite:
+                return "ELITE REWARD";
+
+            case SpecialRewardTier.MiniBoss:
+                return "MINI-BOSS CHEST";
+
+            case SpecialRewardTier.Boss:
+                return "BOSS CHEST";
+        }
+
+        return "SPECIAL REWARD";
+    }
+
+    private void ClearButtonActions()
+    {
+        if (rewardButtons == null || activeButtonActions == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < rewardButtons.Length; i++)
+        {
+            RemoveButtonAction(i);
+        }
+    }
+
+    private void RemoveButtonAction(int index)
+    {
+        if (rewardButtons == null || activeButtonActions == null)
+        {
+            return;
+        }
+
+        if (index < 0 || index >= rewardButtons.Length)
+        {
+            return;
+        }
+
+        if (index >= activeButtonActions.Length)
+        {
+            return;
+        }
+
+        if (rewardButtons[index] == null || activeButtonActions[index] == null)
+        {
+            return;
+        }
+
+        rewardButtons[index].onClick.RemoveListener(activeButtonActions[index]);
+        activeButtonActions[index] = null;
+    }
+
+    private void AutoFindReferences()
+    {
+        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+
+        if (playerObject == null)
+        {
+            return;
+        }
+
+        if (playerStats == null)
+        {
+            playerStats = playerObject.GetComponent<PlayerStats>();
+        }
+
+        if (playerHealth == null)
+        {
+            playerHealth = playerObject.GetComponent<Health>();
+        }
+
+        if (playerSpecialAbilities == null)
+        {
+            playerSpecialAbilities = playerObject.GetComponent<PlayerSpecialAbilities>();
+        }
+    }
+}
